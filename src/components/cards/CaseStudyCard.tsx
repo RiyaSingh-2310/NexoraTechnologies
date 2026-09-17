@@ -9,7 +9,6 @@ type Props = {
   index?: number
   className?: string
 }
-
 export function CaseStudyCard({ study, index = 0, className }: Props) {
   return (
     <Reveal delay={index * 0.06} className={cn('h-full', className)}>
