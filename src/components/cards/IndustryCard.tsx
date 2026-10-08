@@ -10,9 +10,10 @@ type Props = {
 
 export function IndustryCard({ industry, index = 0, className }: Props) {
   return (
-    <Reveal delay={index * 0.05} as="article" className={cn('h-full', className)}>
+    <Reveal delay={index * 0.05} as="article" className={cn('h-full', className)} >
       <div
         id={industry.slug}
+        
         className="flex h-full scroll-mt-28 flex-col rounded-2xl border border-line bg-white/90 p-6 shadow-[var(--shadow-soft)] transition-all duration-300 hover:-translate-y-1 hover:border-teal/30"
       >
         <p className="font-display text-xs font-semibold uppercase tracking-[0.16em] text-teal">
