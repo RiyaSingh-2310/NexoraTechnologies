@@ -1,4 +1,9 @@
-import { isValidPhoneNumber, type CountryCode } from 'libphonenumber-js'
+import {
+  getExampleNumber,
+  isValidPhoneNumber,
+  type CountryCode,
+} from 'libphonenumber-js'
+import examples from 'libphonenumber-js/mobile/examples'
 import { getCountryByCode } from '@/data/countries'
 
 export type ContactFormValues = {
@@ -15,15 +20,31 @@ export type ContactFormErrors = Partial<Record<keyof ContactFormValues, string>>
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const NAME_MAX_LENGTH = 30
+export const PHONE_FALLBACK_MAX_LENGTH = 15
 
-export function sanitizePhoneInput(value: string) {
-  return value.replace(/[^\d\s+\-()]/g, '')
+export function sanitizePhoneDigits(value: string) {
+  return value.replace(/\D/g, '')
+}
+
+export function getPhoneMaxLength(country: string): number {
+  if (!country) return PHONE_FALLBACK_MAX_LENGTH
+
+  try {
+    const example = getExampleNumber(country as CountryCode, examples)
+    if (example?.nationalNumber) {
+      return example.nationalNumber.length
+    }
+  } catch {
+    // Fall through to fallback.
+  }
+
+  return PHONE_FALLBACK_MAX_LENGTH
 }
 
 export function validateName(name: string): string | undefined {
   const trimmed = name.trim()
   if (!trimmed) return 'Full name is required.'
-  if (trimmed.length > NAME_MAX_LENGTH || name.length > NAME_MAX_LENGTH) {
+  if (name.length > NAME_MAX_LENGTH || trimmed.length > NAME_MAX_LENGTH) {
     return 'Full name must be 30 characters or less.'
   }
   return undefined
@@ -31,23 +52,31 @@ export function validateName(name: string): string | undefined {
 
 export function validateEmail(email: string): string | undefined {
   const trimmed = email.trim()
-  if (!trimmed) return 'Please enter a valid work email address.'
+  if (!trimmed) return 'Work email is required.'
   if (!EMAIL_PATTERN.test(trimmed)) return 'Please enter a valid work email address.'
   return undefined
 }
 
 export function validateCountry(country: string): string | undefined {
-  if (!country || !getCountryByCode(country)) return 'Please select a country.'
+  if (!country || !getCountryByCode(country)) return 'Country is required.'
   return undefined
 }
 
 export function validatePhone(phone: string, country: string): string | undefined {
-  if (!country) return 'Please enter a valid phone number for the selected country.'
-  const digits = phone.replace(/\D/g, '')
-  if (!digits) return 'Please enter a valid phone number for the selected country.'
+  const digits = sanitizePhoneDigits(phone)
+
+  if (!digits) return 'Phone number is required.'
+  if (!country || !getCountryByCode(country)) {
+    return 'Please enter a valid phone number for the selected country.'
+  }
+
+  const maxLength = getPhoneMaxLength(country)
+  if (digits.length > maxLength) {
+    return 'Please enter a valid phone number for the selected country.'
+  }
 
   try {
-    if (!isValidPhoneNumber(phone.trim(), country as CountryCode)) {
+    if (!isValidPhoneNumber(digits, country as CountryCode)) {
       return 'Please enter a valid phone number for the selected country.'
     }
   } catch {
@@ -58,7 +87,7 @@ export function validatePhone(phone: string, country: string): string | undefine
 }
 
 export function validateService(service: string): string | undefined {
-  if (!service) return 'Please select a service.'
+  if (!service) return 'Service interest is required.'
   return undefined
 }
 
@@ -67,26 +96,31 @@ export function validateMessage(message: string): string | undefined {
   return undefined
 }
 
+const fieldValidators: {
+  [K in keyof ContactFormValues]: (values: ContactFormValues) => string | undefined
+} = {
+  name: (values) => validateName(values.name),
+  email: (values) => validateEmail(values.email),
+  country: (values) => validateCountry(values.country),
+  phone: (values) => validatePhone(values.phone, values.country),
+  service: (values) => validateService(values.service),
+  message: (values) => validateMessage(values.message),
+}
+
+export function validateContactField(
+  field: keyof ContactFormValues,
+  values: ContactFormValues,
+): string | undefined {
+  return fieldValidators[field](values)
+}
+
 export function validateContactForm(values: ContactFormValues): ContactFormErrors {
   const errors: ContactFormErrors = {}
 
-  const nameError = validateName(values.name)
-  if (nameError) errors.name = nameError
-
-  const emailError = validateEmail(values.email)
-  if (emailError) errors.email = emailError
-
-  const countryError = validateCountry(values.country)
-  if (countryError) errors.country = countryError
-
-  const phoneError = validatePhone(values.phone, values.country)
-  if (phoneError) errors.phone = phoneError
-
-  const serviceError = validateService(values.service)
-  if (serviceError) errors.service = serviceError
-
-  const messageError = validateMessage(values.message)
-  if (messageError) errors.message = messageError
+  ;(Object.keys(fieldValidators) as Array<keyof ContactFormValues>).forEach((field) => {
+    const error = fieldValidators[field](values)
+    if (error) errors[field] = error
+  })
 
   return errors
 }

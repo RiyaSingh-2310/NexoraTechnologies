@@ -7,11 +7,12 @@ type Props = {
   id?: string
   value: string
   onChange: (countryCode: string) => void
+  onBlur?: () => void
   invalid?: boolean
   disabled?: boolean
 }
 
-export function CountrySelect({ id, value, onChange, invalid, disabled }: Props) {
+export function CountrySelect({ id, value, onChange, onBlur, invalid, disabled }: Props) {
   const listId = useId()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
@@ -82,6 +83,11 @@ export function CountrySelect({ id, value, onChange, invalid, disabled }: Props)
         aria-controls={listId}
         aria-invalid={invalid || undefined}
         onClick={() => setOpen((prev) => !prev)}
+        onBlur={(event) => {
+          if (!rootRef.current?.contains(event.relatedTarget as Node)) {
+            onBlur?.()
+          }
+        }}
         className={cn(
           'form-control flex w-full cursor-pointer items-center justify-between gap-2 text-left',
           !selected && 'text-slate/70',

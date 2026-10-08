@@ -2,12 +2,13 @@ import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Button } from '@/components/common/Button'
 import { CountrySelect } from '@/components/forms/CountrySelect'
 import { contactServiceOptions } from '@/data/contactServices'
-import { getCountryByCode } from '@/data/countries'
 import { useMockSubmit } from '@/hooks/useMockSubmit'
 import {
+  getPhoneMaxLength,
   isContactFormValid,
   NAME_MAX_LENGTH,
-  sanitizePhoneInput,
+  sanitizePhoneDigits,
+  validateContactField,
   validateContactForm,
   type ContactFormErrors,
   type ContactFormValues,
@@ -23,52 +24,87 @@ const initialValues: ContactFormValues = {
   message: '',
 }
 
+type TouchedFields = Partial<Record<keyof ContactFormValues, boolean>>
+
 export function ContactForm() {
   const [form, setForm] = useState<ContactFormValues>(initialValues)
   const [errors, setErrors] = useState<ContactFormErrors>({})
-  const [touched, setTouched] = useState(false)
+  const [touched, setTouched] = useState<TouchedFields>({})
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false)
   const { status, submit, reset, isLoading } = useMockSubmit()
 
-  const selectedCountry = getCountryByCode(form.country)
+  const phoneMaxLength = getPhoneMaxLength(form.country)
   const formIsValid = useMemo(() => isContactFormValid(form), [form])
   const canSubmit = formIsValid && !isLoading
+
+  function shouldShowError(field: keyof ContactFormValues) {
+    return Boolean((touched[field] || attemptedSubmit) && errors[field])
+  }
+
+  function syncErrors(
+    nextForm: ContactFormValues,
+    nextTouched: TouchedFields = touched,
+    forceAll = attemptedSubmit,
+  ) {
+    const nextErrors: ContactFormErrors = {}
+    ;(Object.keys(nextForm) as Array<keyof ContactFormValues>).forEach((field) => {
+      if (forceAll || nextTouched[field]) {
+        const error = validateContactField(field, nextForm)
+        if (error) nextErrors[field] = error
+      }
+    })
+    setErrors(nextErrors)
+  }
 
   function setField<K extends keyof ContactFormValues>(key: K, value: ContactFormValues[K]) {
     const next = { ...form, [key]: value }
     setForm(next)
+    syncErrors(next)
+    if (status !== 'idle') reset()
+  }
 
-    if (touched) {
-      setErrors(validateContactForm(next))
-    } else if (errors[key]) {
-      setErrors((current) => {
-        const updated = { ...current }
-        delete updated[key]
-        return updated
-      })
+  function onBlur(field: keyof ContactFormValues) {
+    const nextTouched = { ...touched, [field]: true }
+    setTouched(nextTouched)
+    syncErrors(form, nextTouched)
+  }
+
+  function onNameChange(value: string) {
+    const nextValue = value.length > NAME_MAX_LENGTH ? value.slice(0, NAME_MAX_LENGTH) : value
+    const next = { ...form, name: nextValue }
+    setForm(next)
+
+    if (value.length > NAME_MAX_LENGTH) {
+      setErrors((current) => ({
+        ...current,
+        name: 'Full name must be 30 characters or less.',
+      }))
+    } else {
+      syncErrors(next)
     }
 
     if (status !== 'idle') reset()
   }
 
-  function onNameChange(value: string) {
-    if (value.length > NAME_MAX_LENGTH) {
-      const clipped = value.slice(0, NAME_MAX_LENGTH)
-      const next = { ...form, name: clipped }
-      setForm(next)
-      setErrors((current) => ({
-        ...current,
-        ...(touched ? validateContactForm(next) : {}),
-        name: 'Full name must be 30 characters or less.',
-      }))
-      if (status !== 'idle') reset()
-      return
-    }
-    setField('name', value)
+  function onCountryChange(code: string) {
+    const maxLength = getPhoneMaxLength(code)
+    const clippedPhone = sanitizePhoneDigits(form.phone).slice(0, maxLength)
+    const next = { ...form, country: code, phone: clippedPhone }
+    const nextTouched = { ...touched, country: true }
+    setForm(next)
+    setTouched(nextTouched)
+    syncErrors(next, nextTouched)
+    if (status !== 'idle') reset()
+  }
+
+  function onPhoneChange(value: string) {
+    const digits = sanitizePhoneDigits(value).slice(0, phoneMaxLength)
+    setField('phone', digits)
   }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
-    setTouched(true)
+    setAttemptedSubmit(true)
     const nextErrors = validateContactForm(form)
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0 || isLoading) return
@@ -77,7 +113,8 @@ export function ContactForm() {
     if (ok) {
       setForm(initialValues)
       setErrors({})
-      setTouched(false)
+      setTouched({})
+      setAttemptedSubmit(false)
     }
   }
 
@@ -95,7 +132,8 @@ export function ContactForm() {
             reset()
             setForm(initialValues)
             setErrors({})
-            setTouched(false)
+            setTouched({})
+            setAttemptedSubmit(false)
           }}
         >
           Send another message
@@ -107,11 +145,7 @@ export function ContactForm() {
   return (
     <form onSubmit={onSubmit} noValidate>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          id="name"
-          label="Full Name"
-          error={errors.name}
-        >
+        <Field id="name" label="Full Name" required error={shouldShowError('name') ? errors.name : undefined}>
           <input
             id="name"
             name="name"
@@ -120,13 +154,19 @@ export function ContactForm() {
             maxLength={NAME_MAX_LENGTH}
             value={form.name}
             onChange={(event) => onNameChange(event.target.value)}
-            className={cn('form-control', errors.name && 'border-amber-signal')}
-            aria-invalid={Boolean(errors.name)}
+            onBlur={() => onBlur('name')}
+            className={cn('form-control', shouldShowError('name') && 'border-amber-signal')}
+            aria-invalid={shouldShowError('name')}
             aria-required
           />
         </Field>
 
-        <Field id="email" label="Work Email" error={errors.email}>
+        <Field
+          id="email"
+          label="Work Email"
+          required
+          error={shouldShowError('email') ? errors.email : undefined}
+        >
           <input
             id="email"
             name="email"
@@ -134,66 +174,71 @@ export function ContactForm() {
             autoComplete="email"
             value={form.email}
             onChange={(event) => setField('email', event.target.value)}
-            className={cn('form-control', errors.email && 'border-amber-signal')}
-            aria-invalid={Boolean(errors.email)}
+            onBlur={() => onBlur('email')}
+            className={cn('form-control', shouldShowError('email') && 'border-amber-signal')}
+            aria-invalid={shouldShowError('email')}
             aria-required
           />
         </Field>
 
-        <Field id="country" label="Country" error={errors.country}>
+        <Field
+          id="country"
+          label="Country"
+          required
+          error={shouldShowError('country') ? errors.country : undefined}
+        >
           <CountrySelect
             id="country"
             value={form.country}
-            onChange={(code) => setField('country', code)}
-            invalid={Boolean(errors.country)}
+            onChange={onCountryChange}
+            onBlur={() => onBlur('country')}
+            invalid={shouldShowError('country')}
           />
         </Field>
 
         <Field
           id="phone"
           label="Phone Number"
-          error={errors.phone}
-          hint={
-            selectedCountry
-              ? `Format for ${selectedCountry.name} (${selectedCountry.callingCode})`
-              : 'Select a country to apply the correct phone format'
-          }
+          required
+          error={shouldShowError('phone') ? errors.phone : undefined}
         >
-          <div
-            className={cn(
-              'flex overflow-hidden rounded-xl border border-line bg-cloud focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-teal-bright',
-              errors.phone && 'border-amber-signal',
-            )}
-          >
-            <span className="flex shrink-0 items-center border-r border-line bg-mist px-3 text-sm font-medium text-ink">
-              {selectedCountry?.callingCode ?? '+—'}
-            </span>
-            <input
-              id="phone"
-              name="phone"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel-national"
-              value={form.phone}
-              onChange={(event) => setField('phone', sanitizePhoneInput(event.target.value))}
-              className="form-control min-w-0 flex-1 rounded-none border-0 bg-transparent shadow-none focus-visible:outline-none"
-              aria-invalid={Boolean(errors.phone)}
-              aria-required
-              placeholder={selectedCountry ? 'Enter phone number' : 'Select country first'}
-            />
-          </div>
+          <input
+            id="phone"
+            name="phone"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel-national"
+            pattern="[0-9]*"
+            maxLength={phoneMaxLength}
+            value={form.phone}
+            onChange={(event) => onPhoneChange(event.target.value)}
+            onBlur={() => onBlur('phone')}
+            className={cn('form-control', shouldShowError('phone') && 'border-amber-signal')}
+            aria-invalid={shouldShowError('phone')}
+            aria-required
+            placeholder="Enter phone number"
+          />
         </Field>
       </div>
 
       <div className="mt-4">
-        <Field id="service" label="Service Interest" error={errors.service}>
+        <Field
+          id="service"
+          label="Service Interest"
+          required
+          error={shouldShowError('service') ? errors.service : undefined}
+        >
           <select
             id="service"
             name="service"
             value={form.service}
             onChange={(event) => setField('service', event.target.value)}
-            className={cn('form-control cursor-pointer', errors.service && 'border-amber-signal')}
-            aria-invalid={Boolean(errors.service)}
+            onBlur={() => onBlur('service')}
+            className={cn(
+              'form-control cursor-pointer',
+              shouldShowError('service') && 'border-amber-signal',
+            )}
+            aria-invalid={shouldShowError('service')}
             aria-required
           >
             <option value="">Select a service</option>
@@ -207,15 +252,21 @@ export function ContactForm() {
       </div>
 
       <div className="mt-4">
-        <Field id="message" label="Message" error={errors.message}>
+        <Field
+          id="message"
+          label="Message"
+          required
+          error={shouldShowError('message') ? errors.message : undefined}
+        >
           <textarea
             id="message"
             name="message"
             rows={5}
             value={form.message}
             onChange={(event) => setField('message', event.target.value)}
-            className={cn('form-control', errors.message && 'border-amber-signal')}
-            aria-invalid={Boolean(errors.message)}
+            onBlur={() => onBlur('message')}
+            className={cn('form-control', shouldShowError('message') && 'border-amber-signal')}
+            aria-invalid={shouldShowError('message')}
             aria-required
           />
         </Field>
@@ -237,23 +288,27 @@ export function ContactForm() {
 function Field({
   id,
   label,
+  required,
   error,
-  hint,
   children,
 }: {
   id: string
   label: string
+  required?: boolean
   error?: string
-  hint?: string
   children: ReactNode
 }) {
   return (
     <div>
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-ink">
         {label}
+        {required ? (
+          <span className="ml-0.5 text-amber-signal" aria-hidden>
+            *
+          </span>
+        ) : null}
       </label>
       {children}
-      {hint && !error ? <p className="mt-1 text-xs text-slate">{hint}</p> : null}
       {error ? (
         <p className="mt-1 text-sm text-amber-signal" role="alert">
           {error}
