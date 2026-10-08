@@ -45,6 +45,26 @@
     @apply font-display text-ink tracking-tight;
   }
 
+  a,
+  button,
+  summary,
+  select,
+  label[for],
+  [role='button'],
+  [role='tab'],
+  [role='option'],
+  [role='menuitem'] {
+    @apply cursor-pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'],
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    @apply cursor-not-allowed;
+  }
+
   a {
     @apply transition-colors;
   }
@@ -55,6 +75,30 @@
 
   ::selection {
     @apply bg-teal-soft text-ink;
+  }
+
+  .form-control {
+    @apply w-full rounded-xl border border-line bg-cloud px-3 py-2.5 text-sm text-ink transition-colors;
+  }
+
+  .form-control:focus-visible {
+    @apply outline-2 outline-offset-2 outline-teal-bright;
+  }
+
+  /* Keep browser autofill visually identical to normal typed values */
+  input.form-control:-webkit-autofill,
+  input.form-control:-webkit-autofill:hover,
+  input.form-control:-webkit-autofill:focus,
+  input.form-control:-webkit-autofill:active,
+  textarea.form-control:-webkit-autofill,
+  textarea.form-control:-webkit-autofill:hover,
+  textarea.form-control:-webkit-autofill:focus,
+  select.form-control:-webkit-autofill {
+    -webkit-text-fill-color: #0b1f33;
+    caret-color: #0b1f33;
+    border-color: #d5e0ea;
+    box-shadow: 0 0 0 1000px #f7fafc inset;
+    transition: background-color 99999s ease-out 0s;
   }
 }
 
